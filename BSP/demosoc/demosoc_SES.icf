@@ -1,0 +1,122 @@
+/*********************************************************************
+*                    SEGGER Microcontroller GmbH                     *
+*                        The Embedded Experts                        *
+**********************************************************************
+*                                                                    *
+*            (c) 2014 - 2021 SEGGER Microcontroller GmbH             *
+*                                                                    *
+*       www.segger.com     Support: support@segger.com               *
+*                                                                    *
+**********************************************************************
+*                                                                    *
+* All rights reserved.                                               *
+*                                                                    *
+* Redistribution and use in source and binary forms, with or         *
+* without modification, are permitted provided that the following    *
+* condition is met:                                                  *
+*                                                                    *
+* - Redistributions of source code must retain the above copyright   *
+*   notice, this condition and the following disclaimer.             *
+*                                                                    *
+* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND             *
+* CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,        *
+* INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF           *
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE           *
+* DISCLAIMED. IN NO EVENT SHALL SEGGER Microcontroller BE LIABLE FOR *
+* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR           *
+* CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT  *
+* OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;    *
+* OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF      *
+* LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT          *
+* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE  *
+* USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH   *
+* DAMAGE.                                                            *
+*                                                                    *
+**********************************************************************
+-------------------------- END-OF-HEADER -----------------------------
+
+File    : SEGGER_ILM_RV32.icf
+Purpose : Generic linker script for application placement in ILM,
+          for use with the SEGGER Linker.
+Literature:
+  [1]  SEGGER Linker User Guide (https://www.segger.com/doc/UM20005_Linker.html)
+  [2]  SEGGER Linker Section Placement (https://wiki.segger.com/SEGGER_Linker_Script_Files)
+*/
+
+define memory with size = 4G;
+
+//
+// Combined regions per memory type
+//
+define region ILM1   = ILM;
+define region DLM1   = DLM;
+
+//
+// Block definitions
+//
+define block vectors                        { section .vectors };                                   // Vector table section
+define block vectors_DLM                    { section .vectors_DLM };                               // Vector table section
+define block ctors                          { section .ctors,     section .ctors.*, block with         alphabetical order { init_array } };
+define block dtors                          { section .dtors,     section .dtors.*, block with reverse alphabetical order { fini_array } };
+define block eh_fDLMe                       { section .eh_fDLMe,  section .eh_fDLMe.* };
+define block tbss                           { section .tbss,      section .tbss.*  };
+define block tdata                          { section .tdata,     section .tdata.* };
+define block tls                            { block tbss, block tdata };
+define block tdata_load                     { copy of block tdata };
+define block heap  with size = __HEAPSIZE__,  alignment = 8, /* fill =0x00, */ readwrite access { };
+define block stack with size = __STACKSIZE__, alignment = 8, /* fill =0xCD, */ readwrite access { };
+//
+// Explicit initialization settings for sections
+// Packing options for initialize by copy: packing=auto/lzss/zpak/packbits
+//
+do not initialize                           { section .non_init, section .non_init.*, section .*.non_init, section .*.non_init.* };
+do not initialize                           { section .no_init, section .no_init.*, section .*.no_init, section .*.no_init.* };   // Legacy sections, kept for backwards compatibility
+do not initialize                           { section .noinit, section .noinit.*, section .*.noinit, section .*.noinit.* };       // Legacy sections, used by some SDKs/HALs
+do not initialize                           { block vectors_DLM };
+initialize by copy with packing=auto        { section .data, section .data.*, section .*.data, section .*.data.* };               // Static data sections
+initialize by copy with packing=auto        { section .sdata, section .sdata.* };
+initialize by copy with packing=auto        { section .fast, section .fast.*, section .*.fast, section .*.fast.* };               // "DLM Code" sections
+initialize by symbol __SEGGER_init_heap     { block heap  };                                        // Init the heap if there is one
+initialize by symbol __SEGGER_init_ctors    { block ctors };                                        // Call constructors for global objects which need to be constructed before reaching main (if any). Make sure this is done after setting up heap.
+
+//
+// Explicit placement in ILMn
+//
+place in ILM1                             { section .ILM1, section .ILM1.* };
+//
+// ILM Placement
+//
+place at start of ILM                     { symbol _start };
+//place at start of ILM                     { block vectors };                                      // Vector table section
+place in ILM with minimum size order      { block tdata_load,                                     // Thread-local-storage load image
+                                              block ctors,                                          // Constructors block
+                                              block dtors,                                          // Destructors block
+                                              block eh_fDLMe,                                       // Exception fDLMes placed directly into ILM overriding default placement (sections writable)
+                                              readonly,                                             // Catch-all for readonly data (e.g. .rodata, .srodata)
+                                              readexec                                              // Catch-all for (readonly) executable code (e.g. .text)
+                                            };
+
+//
+// The GNU compiler creates these exception-related sections as writeable.
+// Override the section header flag and make them readonly so they can be
+// placed into ILM.
+//
+define access readonly { section .gcc_except_table, section .gcc_except_table.* };
+define access readonly { section .eh_fDLMe, section .eh_fDLMe.* };
+define access readonly { section .sdata.DW.* };
+
+//
+// Explicit placement in DLMn
+//
+place in DLM1                               { section .DLM1, section .DLM1.* };
+//
+// DLM Placement
+//
+place at start of DLM                       { block vectors_DLM };
+place in DLM with auto order                { section .fast, section .fast.*,                       // "DLMfunc" section
+                                              block tls,                                            // Thread-local-storage block
+                                              readwrite,                                            // Catch-all for initialized/uninitialized data sections (e.g. .data, .noinit)
+                                              zeroinit                                              // Catch-all for zero-initialized data sections (e.g. .bss)
+                                            };
+place in DLM                                { block heap };                                         // Heap reserved block
+place at end of DLM                         { block stack };                                        // Stack reserved block at the end

@@ -64,6 +64,8 @@ Additional information:
 *
 **********************************************************************
 */
+#include "riscv_encoding.h"
+
 #ifndef   APP_ENTRY_POINT
   #define APP_ENTRY_POINT main
 #endif
@@ -182,6 +184,14 @@ START_FUNC _start
         //
         call    _init
 #endif
+
+#ifdef __riscv_flen
+    /* Enable FPU */
+    li t0, MSTATUS_FS
+    csrs mstatus, t0
+    csrw fcsr, x0
+#endif
+
         //
         // Call linker init functions which in turn performs the following:
         // * Perform segment init

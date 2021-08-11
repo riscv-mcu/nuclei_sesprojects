@@ -18,7 +18,10 @@
 
 下载后双击NucleiExamples.emProject文件即可启动SES并打开Nuclei SES Projects。
 
+If you want to add extra compiler options to this project, you can configure the project configuration.
 
+1. Select `Code->Compiler->Additional C/C++ Compiler Options`, and append your options
+2. **Take care**: each option need one newline without space
 
 ## 通过J-LINK连接开发板
 
